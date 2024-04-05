@@ -7,11 +7,17 @@ import torch
 
 from pytorch_layer_test_class import PytorchLayerTest, skip_if_export
 
+
 @pytest.mark.parametrize('alpha', (-0.5, 0, 0.5, 1, 2))
 @pytest.mark.parametrize('input_shape_rhs', [
     [2, 5, 3, 4],
     [1, 5, 3, 4],
-    [1]
+    [1],
+    [2, 1],
+    [1, 2, 3],
+    [3, 2, 1],
+    [5],
+    []
 ])
 class TestAdd(PytorchLayerTest):
 
@@ -104,9 +110,11 @@ class TestAddTypes(PytorchLayerTest):
                               [torch.int64, torch.float16]
                               ])
     @pytest.mark.parametrize(("lhs_shape", "rhs_shape"), [([2, 3], [2, 3]),
-                                                          ([2, 3], []),
-                                                          ([], [2, 3]),
-                                                          ])
+                                                      ([2, 3], []),
+                                                      ([], [2, 3]),
+                                                      ([1], [1]),
+                                                      ([4, 1], [1, 3]),
+                                                      ([1, 4], [3, 1])])
     @pytest.mark.nightly
     @pytest.mark.precommit
     @pytest.mark.precommit_torch_export
@@ -118,6 +126,37 @@ class TestAddTypes(PytorchLayerTest):
         self.rhs_shape = rhs_shape
         self._test(*self.create_model(lhs_type, lhs_shape, rhs_type, rhs_shape),
                    ie_device, precision, ir_version, freeze_model=False, trace_model=True)
+
+class TestAddWithZerosInfinityNaN(PytorchLayerTest):
+
+    def _prepare_input(self):
+        lhs = np.random.randn(2, 3, 4, 5).astype(np.float32)
+        rhs = np.random.randn(2, 3, 4, 5).astype(np.float32)
+        lhs[0, 0, 0, 0] = 0.0
+        lhs[0, 0, 0, 1] = np.inf
+        lhs[0, 0, 0, 2] = -np.inf
+        lhs[0, 0, 0, 3] = np.nan
+        rhs[0, 0, 0, 0] = 0.0
+        rhs[0, 0, 0, 1] = np.inf
+        rhs[0, 0, 0, 2] = -np.inf
+        rhs[0, 0, 0, 3] = np.nan
+        return (lhs, rhs)
+
+    def create_model(self):
+        class aten_add(torch.nn.Module):
+            def forward(self, lhs, rhs):
+                return torch.add(lhs, rhs)
+
+        ref_net = None
+
+        return aten_add(), ref_net, "aten::add"
+
+    @pytest.mark.nightly
+    @pytest.mark.precommit
+    @pytest.mark.precommit_torch_export
+    @pytest.mark.precommit_fx_backend
+    def test_add_with_zeros_infinity_nan(self, ie_device, precision, ir_version):
+        self._test(*self.create_model(), ie_device, precision, ir_version)
 
 class TestAddLists(PytorchLayerTest):
 
